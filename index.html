@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S-TEAM 售價查詢</title>
+<style>
+  :root{
+    --blue:#2952a3; --blue-dark:#1d3b7a; --bg:#f4f6fa; --card:#ffffff;
+    --text:#1f2430; --muted:#6b7280; --border:#e2e6ee;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+    background:var(--bg); color:var(--text);
+  }
+  .gate{
+    min-height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;
+    padding:24px;
+  }
+  .gate-box{
+    background:var(--card); padding:32px 28px; border-radius:14px; box-shadow:0 4px 24px rgba(0,0,0,.08);
+    width:100%; max-width:340px; text-align:center;
+  }
+  .gate-box h1{font-size:18px; margin:0 0 18px;}
+  .gate-box input{
+    width:100%; padding:12px 14px; font-size:16px; border:1px solid var(--border);
+    border-radius:8px; margin-bottom:12px; text-align:center; letter-spacing:2px;
+  }
+  .gate-box button{
+    width:100%; padding:12px; font-size:15px; background:var(--blue); color:#fff;
+    border:none; border-radius:8px; cursor:pointer; font-weight:600;
+  }
+  .gate-box button:active{background:var(--blue-dark);}
+  .gate-err{color:#c0392b; font-size:13px; margin-top:8px; min-height:18px;}
+  .hidden{display:none !important;}
+
+  header{
+    background:var(--blue); color:#fff; padding:16px 16px 14px;
+    position:sticky; top:0; z-index:5;
+  }
+  header h1{margin:0 0 10px; font-size:17px; font-weight:700;}
+  .search-wrap{position:relative;}
+  #searchBox{
+    width:100%; padding:12px 14px; font-size:16px; border:none; border-radius:10px;
+    outline:none;
+  }
+  .hint{font-size:12px; color:#dbe4f7; margin-top:6px;}
+  main{padding:12px 12px 40px; max-width:720px; margin:0 auto;}
+  .count{font-size:13px; color:var(--muted); margin:10px 4px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:14px 16px; margin-bottom:10px;
+  }
+  .card .code{font-weight:700; font-size:15px; color:var(--blue-dark);}
+  .card .brand{display:inline-block; font-size:11px; color:#fff; background:#8b95a8; border-radius:5px; padding:1px 7px; margin-left:6px;}
+  .card .desc{font-size:13.5px; color:var(--text); margin:6px 0 2px; line-height:1.4;}
+  .card .model{font-size:12px; color:var(--muted); margin-bottom:8px;}
+  .prices{display:flex; gap:8px; flex-wrap:wrap;}
+  .price{
+    flex:1; min-width:96px; background:var(--bg); border-radius:8px; padding:6px 10px; text-align:center;
+  }
+  .price .label{font-size:11px; color:var(--muted);}
+  .price .val{font-size:15px; font-weight:700; color:var(--blue-dark);}
+  .remark{font-size:12px; color:#b06a00; margin-top:8px;}
+  .empty{text-align:center; color:var(--muted); padding:40px 10px; font-size:14px;}
+  .loading{text-align:center; color:var(--muted); padding:40px 10px; font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <h1>S-TEAM 售價查詢</h1>
+    <input type="password" id="pwInput" placeholder="請輸入密碼" inputmode="numeric">
+    <button id="pwBtn">進入</button>
+    <div class="gate-err" id="pwErr"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>S-TEAM 售價查詢</h1>
+    <div class="search-wrap">
+      <input id="searchBox" type="text" placeholder="輸入品名 / 車廠 / 車型關鍵字，例如 ALTIS">
+    </div>
+    <div class="hint">可輸入多個關鍵字，用空白分開（例如「TOYOTA ALTIS」）</div>
+  </header>
+  <main>
+    <div class="count" id="count"></div>
+    <div id="results"><div class="loading">資料載入中...</div></div>
+  </main>
+</div>
+
+<script>
+(function(){
+  var PW = "123";
+  var gate = document.getElementById('gate');
+  var app = document.getElementById('app');
+  var pwInput = document.getElementById('pwInput');
+  var pwBtn = document.getElementById('pwBtn');
+  var pwErr = document.getElementById('pwErr');
+
+  function tryEnter(){
+    if(pwInput.value === PW){
+      sessionStorage.setItem('steam_ok','1');
+      gate.classList.add('hidden');
+      app.classList.remove('hidden');
+      loadData();
+    } else {
+      pwErr.textContent = '密碼錯誤，請再試一次';
+    }
+  }
+  pwBtn.addEventListener('click', tryEnter);
+  pwInput.addEventListener('keydown', function(e){ if(e.key==='Enter') tryEnter(); });
+
+  if(sessionStorage.getItem('steam_ok') === '1'){
+    gate.classList.add('hidden');
+    app.classList.remove('hidden');
+    loadData();
+  }
+
+  var ALL = [];
+  var loaded = false;
+
+  function loadData(){
+    if(loaded) return;
+    fetch('manifest.json').then(function(r){return r.json();}).then(function(manifest){
+      var files = manifest.chunks;
+      return Promise.all(files.map(function(f){
+        return fetch(f).then(function(r){ return r.json(); });
+      }));
+    }).then(function(chunkArrays){
+      chunkArrays.forEach(function(arr){ ALL = ALL.concat(arr); });
+      loaded = true;
+      document.getElementById('results').innerHTML = '';
+      render('');
+    }).catch(function(err){
+      document.getElementById('results').innerHTML = '<div class="empty">資料載入失敗，請重新整理頁面</div>';
+      console.error(err);
+    });
+  }
+
+  function norm(s){
+    return (s||'').toString().toLowerCase();
+  }
+
+  function matches(row, terms){
+    var hay = norm(row.code) + ' ' + norm(row.brand) + ' ' + norm(row.desc) + ' ' + norm(row.model) + ' ' + norm(row.year);
+    for(var i=0;i<terms.length;i++){
+      if(terms[i] && hay.indexOf(terms[i]) === -1) return false;
+    }
+    return true;
+  }
+
+  function escapeHtml(s){
+    return (s||'').toString().replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function render(query){
+    var box = document.getElementById('results');
+    var countEl = document.getElementById('count');
+    if(!loaded){ box.innerHTML = '<div class="loading">資料載入中...</div>'; return; }
+
+    var terms = norm(query).split(/\s+/).filter(Boolean);
+    var list;
+    if(terms.length === 0){
+      list = [];
+    } else {
+      list = ALL.filter(function(row){ return matches(row, terms); });
+    }
+
+    if(terms.length === 0){
+      countEl.textContent = '共 ' + ALL.length + ' 筆資料，請輸入關鍵字開始搜尋';
+      box.innerHTML = '';
+      return;
+    }
+
+    countEl.textContent = '找到 ' + list.length + ' 筆';
+
+    if(list.length === 0){
+      box.innerHTML = '<div class="empty">查無相符品項，請換個關鍵字試試</div>';
+      return;
+    }
+
+    var html = list.slice(0, 200).map(function(row){
+      return '' +
+        '<div class="card">' +
+          '<div><span class="code">'+escapeHtml(row.code)+'</span><span class="brand">'+escapeHtml(row.brand)+'</span></div>' +
+          '<div class="desc">'+escapeHtml(row.desc)+'</div>' +
+          '<div class="model">'+escapeHtml(row.model)+(row.year? ' ・ '+escapeHtml(row.year):'')+'</div>' +
+          '<div class="prices">' +
+            '<div class="price"><div class="label">正享進價</div><div class="val">'+escapeHtml(row.dealer)+'</div></div>' +
+            '<div class="price"><div class="label">店家售價</div><div class="val">'+escapeHtml(row.store)+'</div></div>' +
+            '<div class="price"><div class="label">末端售價</div><div class="val">'+escapeHtml(row.retail)+'</div></div>' +
+          '</div>' +
+          (row.remark ? '<div class="remark">'+escapeHtml(row.remark)+'</div>' : '') +
+        '</div>';
+    }).join('');
+
+    if(list.length > 200){
+      html += '<div class="empty">結果過多，僅顯示前200筆，請輸入更精確的關鍵字</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  var searchBox = document.getElementById('searchBox');
+  var debounceTimer = null;
+  searchBox.addEventListener('input', function(){
+    clearTimeout(debounceTimer);
+    var v = searchBox.value;
+    debounceTimer = setTimeout(function(){ render(v); }, 120);
+  });
+})();
+</script>
+
+</body>
+</html>
